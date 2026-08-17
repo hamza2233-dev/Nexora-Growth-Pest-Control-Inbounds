@@ -3,7 +3,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { CallerId, InboundZipCode } = req.body;
+  const { CallerId, InboundZipCode, InboundStateCode } = req.body;
 
   if (!CallerId || !InboundZipCode) {
     return res.status(400).json({ error: 'Missing required parameters' });
@@ -17,6 +17,10 @@ export default async function handler(req, res) {
     InboundZipCode: InboundZipCode,
     pstn: true
   };
+
+  if (InboundStateCode) {
+    payload.InboundStateCode = InboundStateCode;
+  }
 
   try {
     const response = await fetch(targetUrl, {
