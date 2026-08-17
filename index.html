@@ -33,12 +33,21 @@
                 </div>
             </div>
 
-            <div>
-                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
-                    <i class="fa-solid fa-map-pin mr-1.5 text-emerald-600"></i> Zip Code
-                </label>
-                <input type="text" id="inbound_zip" name="inbound_zip" required placeholder="55555" maxlength="5"
-                    class="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition font-mono text-sm">
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+                        <i class="fa-solid fa-map-pin mr-1.5 text-emerald-600"></i> Zip Code
+                    </label>
+                    <input type="text" id="inbound_zip" name="inbound_zip" required placeholder="55555" maxlength="5"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition font-mono text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+                        <i class="fa-solid fa-flag mr-1.5 text-emerald-600"></i> State Code
+                    </label>
+                    <input type="text" id="inbound_state" name="inbound_state" placeholder="e.g. TX" maxlength="2"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-slate-800 placeholder-slate-400 uppercase focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition font-mono text-sm">
+                </div>
             </div>
 
             <div>
@@ -70,7 +79,7 @@
             <!-- DID Display & Copy Action -->
             <div id="didContainer" class="hidden flex items-center justify-between bg-emerald-50 border border-emerald-100 p-2.5 rounded-lg">
                 <div class="font-mono text-emerald-900 font-medium">
-                    <span class="text-slate-500 text-[10px] block uppercase">Target Phone Number</span>
+                    <span id="didTitle" class="text-slate-500 text-[10px] block uppercase">Target Phone Number</span>
                     <span id="didText" class="text-sm">--</span>
                 </div>
                 <button type="button" id="copyDidBtn" onclick="copyDid()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-md transition flex items-center space-x-1.5 shadow-sm">
@@ -94,6 +103,7 @@
         const autoIntervalSelect = document.getElementById('auto_interval');
         const didContainer = document.getElementById('didContainer');
         const didText = document.getElementById('didText');
+        const didTitle = document.getElementById('didTitle');
         const copyBtnText = document.getElementById('copyBtnText');
 
         let autoPingTimer = null;
@@ -107,10 +117,10 @@
             autoIntervalSelect.value = "0";
         };
 
-        const speakSuccess = () => {
+        const speakText = (text) => {
             if ('speechSynthesis' in window) {
                 window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance("Success");
+                const utterance = new SpeechSynthesisUtterance(text);
                 utterance.rate = 1.1;
                 utterance.pitch = 1.2;
                 window.speechSynthesis.speak(utterance);
@@ -120,6 +130,8 @@
         const executePing = async () => {
             let rawPhone = document.getElementById('caller_id').value.trim();
             let zipCodeVal = document.getElementById('inbound_zip').value.trim();
+            let stateCodeVal = document.getElementById('inbound_state').value.trim().toUpperCase();
+            
             if (!rawPhone || !zipCodeVal) return;
 
             let formattedPhone = rawPhone.startsWith('+1') ? rawPhone : '+1' + rawPhone.replace(/^\+/, '');
@@ -129,16 +141,24 @@
             btnText.textContent = "Processing...";
             submitBtn.disabled = true;
 
+            // Build request payload dynamically, including state code if provided
+            let payload = {
+                CallerId: formattedPhone,
+                InboundZipCode: zipCodeVal,
+                pstn: true
+            };
+
+            if (stateCodeVal) {
+                payload.InboundStateCode = stateCodeVal;
+            }
+
             try {
                 const response = await fetch('/api/callgrid-ping', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ 
-                        CallerId: formattedPhone,
-                        InboundZipCode: zipCodeVal
-                    })
+                    body: JSON.stringify(payload)
                 });
 
                 const resultText = await response.text();
@@ -150,7 +170,6 @@
                     const jsonRes = JSON.parse(resultText);
                     responseContent.textContent = JSON.stringify(jsonRes, null, 2);
                     
-                    // Check for CallGrid code 1000 success & dynamicPhoneNumber
                     if (jsonRes.code === 1000 || jsonRes.code === "1000") {
                         let rawNum = jsonRes.dynamicPhoneNumber;
                         if (rawNum) {
@@ -160,14 +179,23 @@
                             }
 
                             lastExtractedDid = cleanNum;
+                            didTitle.textContent = "Target Phone Number";
                             didText.textContent = lastExtractedDid;
                             didContainer.classList.remove('hidden');
                             
                             stopAutoPing();
-                            speakSuccess();
+                            speakText("Success");
                         } else {
                             didContainer.classList.add('hidden');
                         }
+                    } else if (jsonRes.code === 4008 || jsonRes.code === "4008") {
+                        didContainer.classList.add('hidden');
+                        stopAutoPing();
+                        speakText("Duplicate");
+                    } else if (jsonRes.code === 4004 || jsonRes.code === "4004") {
+                        didContainer.classList.add('hidden');
+                        stopAutoPing();
+                        speakText("Capacity Full");
                     } else {
                         didContainer.classList.add('hidden');
                     }
